@@ -1,8 +1,12 @@
+from turtle import Turtle
 from aws_cdk import (
     aws_s3 as s3,
     Stack,
     aws_lambda as lambda_,
-    Duration
+    aws_ec2 as ec2,
+    aws_rds as rds,
+    Duration,
+    RemovalPolicy
 )
 from constructs import Construct
 
@@ -41,5 +45,27 @@ class GlobantChallengeStack(Stack):
             handler="move_to_landing.run",
             timeout=Duration.seconds(300),
         )
+
+
+        default_vpc = ec2.Vpc.from_lookup(self, "default_vpc",
+            is_default=True
+        )
+
+        hr_db_instance = rds.DatabaseInstance(
+            vpc=default_vpc,
+            vpc_subnets=ec2.SubnetType.PUBLIC,
+            engine=rds.PostgresEngineVersion.VER_13_2,
+            instance_type=ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3, ec2.InstanceSize.MICRO),
+            credentials = rds.Credentials.from_generated_secret("hr_database_pg"), # This secret will be created after deploy
+            multi_az=False, #True in real life for redundancy
+            allocated_storage=20,
+            max_allocated_storage=30,
+            allow_major_version_upgrade=False,
+            auto_minor_version_upgrade=True,
+            removal_policy=RemovalPolicy.RETAIN,
+            database_name="hr",
+            publicly_accessible=True #False in real life
+        )
+        # in prod do something like hr_db_instance.connections.allow_from(...)
 
 
