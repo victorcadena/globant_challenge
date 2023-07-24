@@ -3,6 +3,7 @@ import boto3
 import base64
 import psycopg2
 from datetime import datetime
+from database_commons import get_db_connection
 from botocore.exceptions import ClientError
 
 def run(event, _):
@@ -12,9 +13,7 @@ def run(event, _):
         connection = get_db_connection(event)
         for unprocessed_file_path in unprocessed_files:
             process_file(event, unprocessed_file_path, connection)
-        connection.commit()
-        print("commiting transaction")
-        #move_file_to_processed(bucket=event['source'], file_path=unprocessed_file_path)
+            move_file_to_processed(bucket=event['source'], file_path=unprocessed_file_path)
         
     except Exception as e:
         raise e
@@ -39,7 +38,7 @@ def process_file(event, file_path, db_connection):
     with db_connection.cursor() as cursor:
         print(import_query)
         cursor.execute(import_query)
-    
+    db_connection.commit()
 
 def get_unprocessed_files(event):
     try:
@@ -89,36 +88,14 @@ def get_s3_import_credentials(event):
     credentials = json.loads(secret)
     return credentials["aws_access_key_id"], credentials["aws_secret_access_key"]
 
-def get_database_secret(event):
-    target_db_secret_arn = event.get("target_db_secret")
-    session = boto3.session.Session()
-    client = session.client(
-        service_name='secretsmanager',
-        region_name='us-west-2'
-    )
 
-    try:
-        get_secret_value_response = client.get_secret_value(
-            SecretId=target_db_secret_arn
-        )
-    except ClientError as e:
-        raise e
-    else:
-        if 'SecretString' in get_secret_value_response:
-            secret = get_secret_value_response['SecretString']
-        else:
-            secret = base64.b64decode(get_secret_value_response['SecretBinary'])
-    
-    database_secret = json.loads(secret)
-    return database_secret
+def move_file_to_processed(bucket, file_path):
+    client = boto3.client('s3')
+    response = client.list_objects_v2(Bucket=bucket, Prefix=file_path)
+    source_key = response["Contents"][0]["Key"]
+    copy_source = {'Bucket': bucket, 'Key': source_key}
 
-def get_db_connection(event):
-    database_secret = get_database_secret(event)
-    connection = psycopg2.connect(
-        database=database_secret['dbname'],
-        user=database_secret['username'],
-        password=database_secret['password'],
-        host=database_secret['host'],
-        port=database_secret['port']
-    )
-    return connection
+    processed_file_path = file_path.replace("unprocessed", "processed")
+    print(f"moving file from {file_path} to {processed_file_path}")
+    client.copy_object(Bucket = bucket, CopySource = copy_source, Key = processed_file_path)
+    client.delete_object(Bucket = bucket, Key = source_key)
