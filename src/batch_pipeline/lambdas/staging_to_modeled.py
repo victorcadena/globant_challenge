@@ -40,7 +40,7 @@ DELETE FROM staging_hired_employees;
 
 
 def run(event, _):
-    connection = get_db_connection()
+    connection = get_db_connection(event)
     try:
         with connection:
             with connection.cursor() as cur:
