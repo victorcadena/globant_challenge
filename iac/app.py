@@ -3,7 +3,7 @@ import os
 
 import aws_cdk as cdk
 
-from globant_challenge.globant_challenge_stack import GlobantChallengeStack
+from iac.globant_challenge_stack import GlobantChallengeStack
 
 
 app = cdk.App()
@@ -20,7 +20,7 @@ GlobantChallengeStack(app, "GlobantChallengeStack",
     # Uncomment the next line if you know exactly what Account and Region you
     # want to deploy the stack to. */
 
-    #env=cdk.Environment(account='123456789012', region='us-east-1'),
+    env=cdk.Environment(account='727474809098', region='us-west-2'),
 
     # For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
     )
