@@ -6,27 +6,38 @@ from datetime import datetime
 from botocore.exceptions import ClientError
 
 def run(event, _):
-    last_processed_timestamp = get_last_processed()
-    connection = get_db_connection()
-    with connection.cursor() as cursor:
-        pass
+    unprocessed_files = get_unprocessed_files(event)
+    onnection = get_db_connection()
+    # :
+    #     pass
 
-def get_matching_files(event, last_processed_timestamp):
-    datasrt_url = f"{event['source']}/{event['dataset']}"
-    datetime_object = datetime.strptime(last_processed_timestamp, '%Y-%m-%d %H:%M:%S')
+def process_file(file_path, db_connection: psycopg2.connection):
+    with db_connection.cursor() as cursor:
+        cursor.execute()
 
-def get_last_processed():
-    client = boto3.client('dynamodb')
-    data = client.get_item(
-        TableName='processed_tracker',
-        Key={
-            'pipeline_id': {
-                'S': 'landing_to_staging'
-            }
-        }
-    )
-    print(json.dumps(data))
-    return data
+
+def get_unprocessed_files(event):
+    try:
+        datetime_object = datetime.now()
+        client = boto3.client("s3")
+        paginator = client.get_paginator('list_objects')
+        operation_parameters = {'Bucket': event['source'],
+                                'Prefix': f"{event['domain']}/{event['dataset']}/unprocessed"
+                                }
+        page_iterator = paginator.paginate(**operation_parameters)
+        objects_list = []
+        for page in page_iterator:
+            if "Contents" in page:
+                contents = page["Contents"]
+                for dataset_object in contents:
+                    objects_list.append(dataset_object["Key"])
+            else:
+                print("No objects found")
+        return objects_list
+
+    except Exception as e:
+        print(e)
+        raise e
 
 def get_database_secret(event):
     target_db_secret_arn = event.get("target_db_secret")
@@ -51,7 +62,7 @@ def get_database_secret(event):
     database_secret = json.loads(secret)
     return database_secret
 
-def get_db_connection() -> psycopg2.connection:
+def get_db_connection():
     database_secret = get_database_secret()
     connection = psycopg2.connect(
         database=database_secret['dbname'],

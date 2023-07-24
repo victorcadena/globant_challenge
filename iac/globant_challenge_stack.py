@@ -22,13 +22,27 @@ class GlobantChallengeStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
+        self.create_roles()
         self.create_buckets()
-        self.create_fast_metadata_store()
         self.create_target_database()
-        self.create_raw_to_landing_processing()
+        self.create_source_to_raw_processing()
         self.create_dataset_load_to_staging_processing()
         self.create_step_function()
         self.create_api()
+
+    def create_roles(self):
+        self.raw_to_staging_lambda_role = iam.Role(
+            self, 
+            "raw_to_staging_role", 
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
+        )
+
+        self.source_to_raw_lambda_role = iam.Role(
+            self, 
+            "source_to_raw_role", 
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
+        )
+
 
 
     def create_buckets(self):
@@ -40,8 +54,8 @@ class GlobantChallengeStack(Stack):
             removal_policy=RemovalPolicy.RETAIN
         )
 
-        self.landing_bukcet: s3.Bucket = s3.Bucket(self, "landing_globant",
-            bucket_name="landing-globant",
+        self.raw_bucket: s3.Bucket = s3.Bucket(self, "raw-globant",
+            bucket_name="raw-globant-hr",
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
@@ -58,25 +72,25 @@ class GlobantChallengeStack(Stack):
         )
 
         # All the account can read, do not do in PROD, principle of least access
-        self.globant_hr_bucket.grant_read_write(iam.AccountRootPrincipal())
-        self.landing_bukcet.grant_read_write(iam.AccountRootPrincipal())
+        self.globant_hr_bucket.grant_read(self.source_to_raw_lambda_role)
+        self.raw_bucket.grant_read_write(self.source_to_raw_lambda_role)
+        self.raw_bucket.grant_read_write(self.raw_to_staging_lambda_role)
+        
         self.pipelines_metadata.grant_read_write(iam.AccountRootPrincipal())
         
 
-    def create_fast_metadata_store(self):
-        table: dynamodb.Table = dynamodb.Table(
-            self,
-            "processed_tracker",
-            table_name="processed_tracker",
-            partition_key=dynamodb.Attribute(name="pipeline_id", type=dynamodb.AttributeType.STRING),
-            sort_key=dynamodb.Attribute(name="last_processed", type=dynamodb.AttributeType.STRING),
-            read_capacity=1,
-            write_capacity=1,
-        )
-        table.grant_read_write_data(iam.AccountRootPrincipal())
-
     def create_target_database(self):
         vpc = ec2.Vpc.from_lookup(self, "default_vpc", is_default=True)
+        security_group: ec2.SecurityGroup = ec2.SecurityGroup(self, "db_security_group",
+            vpc=vpc,
+            allow_all_outbound=True
+        )
+
+        security_group.add_ingress_rule(
+            ec2.Peer.any_ipv4(), 
+            ec2.Port.tcp(5432), 
+            'DB Connect from Anywhere'
+        )
         
         self.hr_db_instance: rds.DatabaseInstance = rds.DatabaseInstance(self, "hr_database",
             engine=rds.DatabaseInstanceEngine.postgres(version=rds.PostgresEngineVersion.VER_14),
@@ -87,25 +101,24 @@ class GlobantChallengeStack(Stack):
                 subnet_type=ec2.SubnetType.PUBLIC
             ),
             database_name="hr",
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY,
+            security_groups=[security_group],
+            publicly_accessible=True
         )
 
-        self.lambdas_role = iam.Role(
-            self, 
-            "read_db_secret", 
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
-        )
+        
         # self.hr_db_instance.grant_connect(self.lambdas_role) -> do in PROD: Not doing this se we can check the db from outside
-        self.hr_db_instance.secret.grant_read(self.lambdas_role)
+        self.hr_db_instance.secret.grant_read(self.raw_to_staging_lambda_role)
 
-    def create_raw_to_landing_processing(self):
-        self.raw_to_landing_lambda = lambda_.Function(self, "raw_to_landing",
+    def create_source_to_raw_processing(self):
+        self.source_to_raw = lambda_.Function(self, "source_to_raw_function",
             code=lambda_.Code.from_asset(os.path.join(".", "src", "batch_pipeline", "lambdas")),
-            handler="raw_to_landing.run",
+            handler="source_to_raw.run",
             runtime=lambda_.Runtime.PYTHON_3_9,
             environment={
                 "TARGET_DB_CREDENTIALS_SECRET": secrets.Secret.from_secret_name_v2(self, "hr_db_scret", "hr").secret_arn
-            }
+            },
+            role=self.source_to_raw_lambda_role
         )
 
         hr_new_data_event = event_sources.S3EventSource(
@@ -114,19 +127,19 @@ class GlobantChallengeStack(Stack):
             filters=[s3.NotificationKeyFilter(prefix="hr/")]
         )
 
-        self.raw_to_landing_lambda.add_event_source(hr_new_data_event)
+        self.source_to_raw.add_event_source(hr_new_data_event)
         
     def create_dataset_load_to_staging_processing(self):
-        self.landing_to_stg: lambda_.Function = lambda_.Function(self, "landing_to_staging",
+        self.raw_to_stg: lambda_.Function = lambda_.Function(self, "raw_to_staging_lambda",
             code=lambda_.Code.from_asset(os.path.join(".", "src", "batch_pipeline", "lambdas")),
-            handler="landing_to_staging_db.run",
+            handler="raw_to_staging_db.run",
             runtime=lambda_.Runtime.PYTHON_3_9,
-            role=self.lambdas_role
+            role=self.raw_to_staging_lambda_role
         )
 
     def create_step_function(self):
         database_secret = self.hr_db_instance.secret.secret_arn
-        source = self.landing_bukcet.s3_url_for_object("hr")
+        source = self.raw_bucket.bucket_name
         departments_payload = sfn.TaskInput.from_object({
             "target_db_secret": database_secret,
             "dataset": "departments",
@@ -151,21 +164,21 @@ class GlobantChallengeStack(Stack):
         departments_to_stg_task = tasks.LambdaInvoke(
             self,
             "Load departments to staging",
-            lambda_function=self.landing_to_stg,
+            lambda_function=self.raw_to_stg,
             payload=departments_payload
         )
 
         jobs_to_stg_task= tasks.LambdaInvoke(
             self,
             "Load jobs to staging",
-            lambda_function=self.landing_to_stg,
+            lambda_function=self.raw_to_stg,
             payload=jobs_payload
         )
 
         employees_to_stg_task = tasks.LambdaInvoke(
             self,
             "Load employees to staging",
-            lambda_function=self.landing_to_stg,
+            lambda_function=self.raw_to_stg,
             payload=employees_payload
         )
 
