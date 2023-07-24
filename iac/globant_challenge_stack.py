@@ -34,14 +34,28 @@ class GlobantChallengeStack(Stack):
         self.raw_to_staging_lambda_role = iam.Role(
             self, 
             "raw_to_staging_role", 
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+            ]
         )
 
         self.source_to_raw_lambda_role = iam.Role(
             self, 
             "source_to_raw_role", 
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+            ]
         )
+        self.rds_secret_arn = "arn:aws:secretsmanager:us-west-2:727474809098:secret:rds_import-aEDh4L"
+        secret = secrets.Secret.from_secret_attributes(self, "rds_import_s3_secret",
+            secret_complete_arn=self.rds_secret_arn
+        )
+
+        secret.grant_read(self.raw_to_staging_lambda_role)
 
 
 
@@ -105,7 +119,6 @@ class GlobantChallengeStack(Stack):
             security_groups=[security_group],
             publicly_accessible=True
         )
-
         
         # self.hr_db_instance.grant_connect(self.lambdas_role) -> do in PROD: Not doing this se we can check the db from outside
         self.hr_db_instance.secret.grant_read(self.raw_to_staging_lambda_role)
@@ -118,7 +131,8 @@ class GlobantChallengeStack(Stack):
             environment={
                 "TARGET_DB_CREDENTIALS_SECRET": secrets.Secret.from_secret_name_v2(self, "hr_db_scret", "hr").secret_arn
             },
-            role=self.source_to_raw_lambda_role
+            role=self.source_to_raw_lambda_role,
+            timeout=Duration.minutes(15)
         )
 
         hr_new_data_event = event_sources.S3EventSource(
@@ -134,7 +148,8 @@ class GlobantChallengeStack(Stack):
             code=lambda_.Code.from_asset(os.path.join(".", "src", "batch_pipeline", "lambdas")),
             handler="raw_to_staging_db.run",
             runtime=lambda_.Runtime.PYTHON_3_9,
-            role=self.raw_to_staging_lambda_role
+            role=self.raw_to_staging_lambda_role,
+            timeout=Duration.minutes(15)
         )
 
     def create_step_function(self):
@@ -142,6 +157,7 @@ class GlobantChallengeStack(Stack):
         source = self.raw_bucket.bucket_name
         departments_payload = sfn.TaskInput.from_object({
             "target_db_secret": database_secret,
+            "rds_secret_arn": self.rds_secret_arn,
             "dataset": "departments",
             "domain": "hr",
             "source": source
@@ -149,6 +165,7 @@ class GlobantChallengeStack(Stack):
 
         jobs_payload = sfn.TaskInput.from_object({
             "target_db_secret": database_secret,
+            "rds_secret_arn": self.rds_secret_arn,
             "dataset": "jobs",
             "domain": "hr",
             "source": source
@@ -156,7 +173,8 @@ class GlobantChallengeStack(Stack):
 
         employees_payload = sfn.TaskInput.from_object({
             "target_db_secret": database_secret,
-            "dataset": "employees",
+            "rds_secret_arn": self.rds_secret_arn,
+            "dataset": "hired_employees",
             "domain": "hr",
             "source": source
         })
@@ -206,7 +224,8 @@ class GlobantChallengeStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_9,
             environment={
                 "PIPELINE_STEP_FUNCTION_ARN": self.state_machine.state_machine_arn
-            }
+            },
+            timeout=Duration.minutes(1)
         )
 
         batch_api = apigateway.LambdaRestApi(self, "batch_api",
@@ -224,7 +243,8 @@ class GlobantChallengeStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_9,
             environment={
                 "TARGET_DB_SECRET": secrets.Secret.from_secret_name_v2(self, "online_hr_db_secret", "hr").secret_arn
-            }
+            },
+            timeout=Duration.minutes(15)
         )
 
         online_api = apigateway.LambdaRestApi(self, "online_api",
