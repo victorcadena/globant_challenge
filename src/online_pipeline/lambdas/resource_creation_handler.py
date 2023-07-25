@@ -23,6 +23,8 @@ def create_employees(employees):
         assert "name" in employee \
         and "department" in employee \
         and "job" in employee, "The employee must have name, department and job, check the payload"
+    
+    assert len(employees) <= 1000, "The maximum batch size is 1000, please fix the payload"
     batch_insert_sql = """
         with mapped_departments_employee as (
         SELECT temp_employee.*, d.id AS department_id
