@@ -11,7 +11,6 @@ def run(event, _):
         connection = get_db_connection(event)
         for unprocessed_file_path in unprocessed_files:
             process_file(event, unprocessed_file_path, connection)
-            move_file_to_processed(bucket=event['source'], file_path=unprocessed_file_path)
         
     except Exception as e:
         raise e
@@ -20,23 +19,30 @@ def run(event, _):
             connection.close()
 
 def process_file(event, file_path, db_connection):
-    key_id, secret_key = get_s3_import_credentials(event)
-    import_query = f"""
-    select aws_s3.table_import_from_s3 (
-        'staging_{event['dataset']}', 
-        '',
-        '(format csv, header false)',
-        '{event['source']}', 
-        '{file_path}', 
-        'us-west-2',
-        '{key_id}',
-        '{secret_key}'
-    )
-    """
-    with db_connection.cursor() as cursor:
-        print(import_query)
-        cursor.execute(import_query)
-    db_connection.commit()
+    try:
+        key_id, secret_key = get_s3_import_credentials(event)
+        import_query = f"""
+        select aws_s3.table_import_from_s3 (
+            'staging_{event['dataset']}', 
+            '',
+            '(format csv, header false)',
+            '{event['source']}', 
+            '{file_path}', 
+            'us-west-2',
+            '{key_id}',
+            '{secret_key}'
+        )
+        """
+        with db_connection.cursor() as cursor:
+            print(import_query)
+            cursor.execute(import_query)
+        db_connection.commit()
+    except Exception as e:
+        print(f"File {file_path} not processed, sending it to failed, skipping it")
+        print(e)
+        move_file_to(bucket=event['source'], file_path=file_path, to="failed")
+    else:
+        move_file_to(bucket=event['source'], file_path=file_path, to="processed")
 
 def get_unprocessed_files(event):
     try:
@@ -87,13 +93,13 @@ def get_s3_import_credentials(event):
     return credentials["aws_access_key_id"], credentials["aws_secret_access_key"]
 
 
-def move_file_to_processed(bucket, file_path):
+def move_file_to(bucket, file_path, to="processed"):
     client = boto3.client('s3')
     response = client.list_objects_v2(Bucket=bucket, Prefix=file_path)
     source_key = response["Contents"][0]["Key"]
     copy_source = {'Bucket': bucket, 'Key': source_key}
 
-    processed_file_path = file_path.replace("unprocessed", "processed")
+    processed_file_path = file_path.replace("unprocessed", to)
     print(f"moving file from {file_path} to {processed_file_path}")
     client.copy_object(Bucket = bucket, CopySource = copy_source, Key = processed_file_path)
     client.delete_object(Bucket = bucket, Key = source_key)
