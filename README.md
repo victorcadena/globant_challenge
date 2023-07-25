@@ -1,10 +1,10 @@
 
-# Glovant Challenge
+# Globant Challenge
 
 ### Architecture
 The pipeline is done in an idempotent and scalable way to get great performance. 
 
-
+![globant_challenge_architecture](https://github.com/victorcadena/globant_challenge/assets/4828992/b89d2396-601a-48e4-a443-cf230ed74336)
 
 
 ### How to run the IAC code and deploy
