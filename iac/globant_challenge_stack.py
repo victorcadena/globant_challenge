@@ -32,24 +32,31 @@ class GlobantChallengeStack(Stack):
         self.create_api()
 
     def create_roles(self):
+
+        common_managed_policies = [
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+            ]
         self.processing_lambdas_role = iam.Role(
             self, 
             "processing_lambdas_role", 
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
-            ]
+            managed_policies=common_managed_policies
+        )
+
+        self.batch_execution_lambda_role = iam.Role(
+            self, 
+            "batch_execution_lambda_role", 
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=common_managed_policies
         )
 
         self.source_to_raw_lambda_role = iam.Role(
             self, 
             "source_to_raw_role", 
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
-            ]
+            managed_policies=common_managed_policies
+            
         )
         self.rds_secret_arn = "arn:aws:secretsmanager:us-west-2:727474809098:secret:rds_import-aEDh4L"
         secret = secrets.Secret.from_secret_attributes(self, "rds_import_s3_secret",
@@ -236,10 +243,12 @@ class GlobantChallengeStack(Stack):
             definition=main_workflow,
             timeout=Duration.minutes(10),
             state_machine_type=sfn.StateMachineType.STANDARD, # for ETL
-
         )
 
+        self.state_machine.grant_start_execution(self.batch_execution_lambda_role)
+
     def create_api(self):
+        # Start Step Function
         start_batch_execution = lambda_.Function(
             self, "batch_execution",
             code=lambda_.Code.from_asset(os.path.join(".", "src", "batch_pipeline", "lambdas")),
@@ -248,7 +257,8 @@ class GlobantChallengeStack(Stack):
             environment={
                 "PIPELINE_STEP_FUNCTION_ARN": self.state_machine.state_machine_arn
             },
-            timeout=Duration.minutes(1)
+            timeout=Duration.minutes(1),
+            role=self.batch_execution_lambda_role
         )
 
         batch_api = apigateway.LambdaRestApi(self, "batch_api",
@@ -270,7 +280,7 @@ class GlobantChallengeStack(Stack):
             timeout=Duration.minutes(15),
             role=self.processing_lambdas_role
         )
-        self.state_machine.grant_execution(self.processing_lambdas_role)
+        
 
         online_api = apigateway.LambdaRestApi(self, "online_api",
             handler=start_batch_upload_execution,

@@ -1,7 +1,15 @@
 
-# Welcome to your CDK Python project!
+# Glovant Challenge
 
-This is a blank project for CDK development with Python.
+### Architecture
+The pipeline is done in an idempotent and scalable way to get great performance. 
+
+
+
+
+### How to run the IAC code and deploy
+
+Remember, you should authenticate before this 
 
 The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
@@ -55,4 +63,23 @@ command.
  * `cdk diff`        compare deployed stack with current state
  * `cdk docs`        open CDK documentation
 
-Enjoy!
+### Production considerations
+
+Before doing anything, please consider this 
+
+1. Database scale
+2. Authentication and authorization
+3. Model and data validation online
+4. Data Validation in the pipeline
+5. Scale the lambdas 1 per file via parallel iteration in step function
+6. Decouple the stack for single responsibility
+7. CI/CD and tests
+8. If reports are needed on scale materialized views or sending to a data mart
+9. Use roles instead of authentication with keys on the import from RDS
+10. Event notification from source bucket
+11. Alarms on quality and be able to retry failed records
+12. If needed multi region DNS routing, database replication over regions
+13. Have an ORM for a better integration with the DB, the relationship, keys, model validation, etc…
+14. Change to Serial the DB keys, for the migration purpose was not done
+15. Logging instead of printing
+16. Parameters and configuration in a common place, not inside stack code
