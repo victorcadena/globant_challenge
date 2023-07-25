@@ -1,8 +1,6 @@
 import json
 import boto3
 import base64
-import psycopg2
-from datetime import datetime
 from database_commons import get_db_connection
 from botocore.exceptions import ClientError
 
