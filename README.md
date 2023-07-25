@@ -83,3 +83,4 @@ Before doing anything, please consider this
 14. Change to Serial the DB keys, for the migration purpose was not done
 15. Logging instead of printing
 16. Parameters and configuration in a common place, not inside stack code
+17. CloudWatch alarms on failed pipeline
