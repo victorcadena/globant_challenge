@@ -84,3 +84,4 @@ Before doing anything, please consider this
 15. Logging instead of printing
 16. Parameters and configuration in a common place, not inside stack code
 17. CloudWatch alarms on failed pipeline
+18. Include pgBouncer for a connection pool and reuse of connections to the DB
