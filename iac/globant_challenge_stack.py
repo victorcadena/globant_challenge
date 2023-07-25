@@ -270,7 +270,7 @@ class GlobantChallengeStack(Stack):
             timeout=Duration.minutes(15),
             role=self.processing_lambdas_role
         )
-        self.state_machine.grant_execution(start_batch_upload_execution)
+        self.state_machine.grant_execution(self.processing_lambdas_role)
 
         online_api = apigateway.LambdaRestApi(self, "online_api",
             handler=start_batch_upload_execution,
