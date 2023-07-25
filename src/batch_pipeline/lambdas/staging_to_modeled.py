@@ -17,14 +17,14 @@ UPDATE
 """
 
 LOAD_HIRED_EMPLOYEES = """
-INSERT INTO hired_employees  (id,name, hired_datetime, department_id, job_id)
-    SELECT distinct id,name, hired_datetime, department_id , job_id  
+INSERT INTO hired_employees  (name, hired_datetime, department_id, job_id)
+    SELECT distinct name, hired_datetime, department_id , job_id  
     FROM staging_hired_employees 
     WHERE 
         name IS NOT NULL AND
         hired_datetime IS NOT NULL AND
         department_id IS NOT NULL AND job_id is not NULL
-ON CONFLICT (id) DO 
+ON CONFLICT (hired_datetime, name, department_id, job_id) DO 
 UPDATE
 	SET 
 	name=EXCLUDED.name,

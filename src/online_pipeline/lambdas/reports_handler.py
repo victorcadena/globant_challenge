@@ -1,11 +1,16 @@
-from psycopg2.extras import RealDictCursor
-from database_commons import get_db_connection
 
+from database_commons import get_db_connection, get_json_results_from_db
+from api_commons import form_response
 def run(event, _):
-    print("Got into the event for online transactions!")
-    print(event)
+    supported_resources_to_handler = {
+        "/employees_by_department": get_employees_hired_by_department,
+        "/abover_average_departments": get_above_average_departments
+    }
+    resource = event["resource"]
+    result = supported_resources_to_handler[resource]()
+    return form_response(result)
 
-def get_employees_hired_by_department(event):
+def get_employees_hired_by_department():
     sql = """
         select
             department, 
@@ -42,9 +47,9 @@ def get_employees_hired_by_department(event):
         group by department, job
         order by department, job
     """
-    return _get_json_results_from_db(event, sql)
+    return get_json_results_from_db(sql)
     
-def get_above_average_departments(event):
+def get_above_average_departments():
     sql = """
     with mean_employees as (
 	select avg(department_hire_count) as average_hire
@@ -70,18 +75,6 @@ def get_above_average_departments(event):
     having count(*) > (select average_hire from mean_employees)
     order by hired desc
     """
-    return _get_json_results_from_db(event, sql)
+    return get_json_results_from_db(sql)
 
-def _get_json_results_from_db(event, sql):
-    connection = get_db_connection(event)
-    result = []
-    try:
-        with connection:
-            with connection.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql)
-                result = cur.fetchall()
-        return result
-    except Exception as e:
-        raise e
-    finally:
-        connection.close()
+

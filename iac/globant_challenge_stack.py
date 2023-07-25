@@ -259,27 +259,46 @@ class GlobantChallengeStack(Stack):
         batch_pipeline_execution = batch_api.root.add_resource("batch_process")
         batch_pipeline_execution.add_method("POST")
 
-        # Online API Definition
-        start_online_execution = lambda_.Function(self, "online_execution",
+        # Online Batch Creation Definition
+        start_batch_upload_execution = lambda_.Function(self, "resource_creation",
             code=lambda_.Code.from_asset(os.path.join(".", "src", "online_pipeline", "lambdas")),
-            handler="online_handler.run",
+            handler="resource_creation_handler.request_handling_facade",
             runtime=lambda_.Runtime.PYTHON_3_9,
             environment={
-                "TARGET_DB_SECRET": secrets.Secret.from_secret_name_v2(self, "online_hr_db_secret", "hr").secret_arn
+                "TARGET_DB_SECRET": self.hr_db_instance.secret.secret_arn
             },
-            timeout=Duration.minutes(15)
+            timeout=Duration.minutes(15),
+            role=self.processing_lambdas_role
         )
+        self.state_machine.grant_execution(start_batch_upload_execution)
 
         online_api = apigateway.LambdaRestApi(self, "online_api",
-            handler=start_online_execution,
+            handler=start_batch_upload_execution,
             proxy=False
         )
 
         online_pipeline_execution = online_api.root.add_resource("employees")
         online_pipeline_execution.add_method("POST")
 
-        online_pipeline_execution = online_api.root.add_resource("jobs")
-        online_pipeline_execution.add_method("POST")
+        # Online reports definition
+        start_report_execution = lambda_.Function(self, "reports_function",
+            code=lambda_.Code.from_asset(os.path.join(".", "src", "online_pipeline", "lambdas")),
+            handler="reports_handler.run",
+            runtime=lambda_.Runtime.PYTHON_3_9,
+            environment={
+                "TARGET_DB_SECRET": self.hr_db_instance.secret.secret_arn
+            },
+            timeout=Duration.minutes(15),
+            role=self.processing_lambdas_role
+        )
 
-        online_pipeline_execution = online_api.root.add_resource("departments")
-        online_pipeline_execution.add_method("POST")
+        reports_api = apigateway.LambdaRestApi(self, "reports_api",
+            handler=start_report_execution,
+            proxy=False
+        )
+
+        employees_by_department_resource = reports_api.root.add_resource("employees_by_department")
+        employees_by_department_resource.add_method("GET")
+
+        abover_average_departments_resource = reports_api.root.add_resource("abover_average_departments")
+        abover_average_departments_resource.add_method("GET")
