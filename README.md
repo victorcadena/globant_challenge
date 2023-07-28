@@ -65,10 +65,10 @@ command.
 
 ### Production considerations
 
-Before doing anything, please consider this 
+Before doing anything, please consider that this is a challenge and not a production application. Some of the points to make it production level 
 
 1. Database scale
-2. Authentication and authorization
+2. Authentication and authorization in the REST APIs 
 3. Model and data validation online
 4. Data Validation in the pipeline
 5. Scale the lambdas 1 per file via parallel iteration in step function
